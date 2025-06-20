@@ -1,14 +1,10 @@
 package com.enspy.syndicmanager.services;
 
 
-import com.enspy.syndicmanager.config.WebClientConfig;
-import com.enspy.syndicmanager.dto.apiResponse.loginResponse;
+import com.enspy.syndicmanager.client.dto.response.LoginResponse;
 import com.enspy.syndicmanager.dto.request.LoginDto;
 import com.enspy.syndicmanager.dto.request.RegisterDto;
 import com.enspy.syndicmanager.dto.response.ResponseDto;
-import lombok.AllArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -26,13 +22,13 @@ public class AuthService {
     public AuthService(WebClient webClient) {
         this.webClient = webClient;
     }
-    public Mono<loginResponse> login (LoginDto loginDto) {
+    public Mono<LoginResponse> login (LoginDto loginDto) {
         return webClient.post()
                 .uri("/auth-service/auth/login")
                 .bodyValue(loginDto)
                 .retrieve()
-                .bodyToMono(loginResponse.class)
-                .doOnNext(resp -> this.authToken = resp.getToken());
+                .bodyToMono(LoginResponse.class)
+                .doOnNext(resp -> this.authToken = resp.getAccessToken().getToken());
     }
 
     public Mono<ResponseDto> register(RegisterDto registerDto) {
