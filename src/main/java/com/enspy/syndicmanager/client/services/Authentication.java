@@ -4,6 +4,8 @@ import com.enspy.syndicmanager.client.dto.response.LoginResponse;
 import com.enspy.syndicmanager.dto.request.LoginDto;
 import com.enspy.syndicmanager.dto.request.RegisterDto;
 import com.enspy.syndicmanager.dto.response.ResponseDto;
+import com.enspy.syndicmanager.services.AuthService;
+import lombok.AllArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -17,19 +19,22 @@ import reactor.util.retry.Retry;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 @Service
 public class Authentication {
 
+
     private final WebClient webClient;
     private final WebClient tokenWebClient;
     private String authToken;
+    AuthService authService;
 
     private static final String TOKEN_ENDPOINT = "https://gateway.yowyob.com/auth-service/oauth/token";
     private static final String CLIENT_ID     = "test-client";
     private static final String CLIENT_SECRET = "secret";
 
-    public Authentication(WebClient webClient, WebClient.Builder webClientBuilder) {
+    public Authentication(WebClient webClient, AuthService authService, WebClient.Builder webClientBuilder) {
         this.webClient = Objects.requireNonNull(webClient, "WebClient cannot be null");
 
         // WebClient dédié à l'IdP pour récupérer le token client_credentials
@@ -37,6 +42,8 @@ public class Authentication {
                 .baseUrl(TOKEN_ENDPOINT)
                 .defaultHeaders(h -> h.setBasicAuth(CLIENT_ID, CLIENT_SECRET))
                 .build();
+
+        this.authService = authService;
     }
 
     /**
@@ -128,6 +135,39 @@ public class Authentication {
                             .headers(h -> h.setBearerAuth(clientToken))
                             .bodyValue(registerDto)
                             .exchangeToMono(this::handleResponse);
+                })
+                .flatMap(responseDto -> {
+
+                    if (responseDto.getStatus() == 201 && responseDto.getData() != null) {
+                        try {
+
+                            Map<String, Object> data = (Map<String, Object>) responseDto.getData();
+                            String idString = (String) data.get("id");
+                            UUID userId = UUID.fromString(idString);
+
+
+                            return authService.registerSyndicUser(registerDto, userId)
+                                    .map(savedUser -> {
+                                        System.out.println("Utilisateur enregistré avec succès dans la base locale avec l'ID: " + userId);
+                                        return responseDto;
+                                    })
+                                    .onErrorResume(dbError -> {
+                                        System.err.println("Erreur lors de l'enregistrement local: " + dbError);
+                                        ResponseDto errorDto = new ResponseDto();
+                                        errorDto.setStatus(500);
+                                        errorDto.setText("Inscription réussie mais échec de l'enregistrement local: " + dbError);
+                                        return Mono.just(errorDto);
+                                    });
+
+                        } catch (Exception e) {
+                            System.err.println("Erreur lors de l'extraction de l'ID: " + e.getMessage());
+                            ResponseDto errorDto = new ResponseDto();
+                            errorDto.setStatus(500);
+                            errorDto.setText("Inscription réussie mais erreur lors du traitement des données: " + e.getMessage());
+                            return Mono.just(errorDto);
+                        }
+                    }
+                    return Mono.just(responseDto);
                 })
                 .retryWhen(Retry.backoff(3, Duration.ofSeconds(1))
                         .filter(ex -> ex instanceof WebClientResponseException)
