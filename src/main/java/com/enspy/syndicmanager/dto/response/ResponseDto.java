@@ -12,7 +12,7 @@ import org.springframework.http.HttpStatusCode;
 public class ResponseDto {
      int status;
      String text;
-     String data;
+     Object data;
 
      public HttpStatusCode statusCode() {
           return HttpStatusCode.valueOf(status);

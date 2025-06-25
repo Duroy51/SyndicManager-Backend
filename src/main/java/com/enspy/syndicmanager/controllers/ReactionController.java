@@ -13,7 +13,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/reactions")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*", allowedHeaders = "*")
+@CrossOrigin(origins = "http://localhost:5176", allowedHeaders = "*")
 public class ReactionController {
 
     private final ReactionService reactionService;

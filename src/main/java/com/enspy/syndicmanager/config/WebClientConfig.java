@@ -1,104 +1,71 @@
 package com.enspy.syndicmanager.config;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.enspy.syndicmanager.client.utils.WebClientUtils;
+import io.netty.channel.ChannelOption;
+import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.handler.timeout.WriteTimeoutHandler;
+import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import org.springframework.web.reactive.function.client.ClientRequest;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
+import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
-import reactor.util.context.Context;
-import java.util.UUID;
+import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
 
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 @Configuration
+@AllArgsConstructor
+@Slf4j
 public class WebClientConfig {
 
+    WebClientUtils webClientUtils;
+
+
     @Bean
-    public WebClient webClient() {
-        return WebClient.builder()
-                .baseUrl("http://example.com") // remplace par ton URL de base
-                .filter(logRequest())
-                .filter((request, next) -> {
-                    // Transfère les attributs vers le contexte
-                    return next.exchange(request)
-                            .contextWrite(ctx -> {
-                                Context updated = ctx;
-                                if (request.attribute("request-id").isPresent()) {
-                                    updated = updated.put("request-id", request.attribute("request-id").get());
-                                }
-                                if (request.attribute("start-time").isPresent()) {
-                                    updated = updated.put("start-time", request.attribute("start-time").get());
-                                }
-                                return updated;
-                            });
+    @Primary
+    public WebClient webClient(WebClient.Builder builder) {
+
+        ConnectionProvider connectionProvider = ConnectionProvider.newConnection();
+
+        // Configuration HTTP client avec timeouts mais SANS pool
+        HttpClient httpClient = HttpClient.create(connectionProvider)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000) // 10s connexion
+                .option(ChannelOption.SO_KEEPALIVE, false)           // Pas de keep-alive
+                .doOnConnected(conn -> conn
+                        .addHandlerLast(new ReadTimeoutHandler(30, TimeUnit.SECONDS))   // 30s read
+                        .addHandlerLast(new WriteTimeoutHandler(20, TimeUnit.SECONDS))) // 20s write
+                .responseTimeout(Duration.ofSeconds(45))             // 45s response
+                .compress(false);                                    // Pas de compression
+
+        return builder
+                .baseUrl("https://gateway.yowyob.com")
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+
+                // Headers de base
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader("application_id", "6e2b2960-3e7a-11f0-b955-8dc72e51fc52")
+                .defaultHeader("Public-Key", "api_1748735619775_6e2b2960.8jMVrdiqr_j04GJLvMxI_SBdEA-R_qs9")
+
+                // Configuration codecs
+                .codecs(configurer -> {
+                    configurer.defaultCodecs().maxInMemorySize(1 * 1024 * 1024); // 1MB
                 })
-                .filter(logResponse())
+
+                // Filtres essentiels
+                .filter(webClientUtils.addAuthToken())
+                .filter(webClientUtils.logRequest())
+                .filter(webClientUtils.logResponse())
+                .filter(webClientUtils.logBody())
+
                 .build();
     }
-
-    private ExchangeFilterFunction logRequest() {
-        return ExchangeFilterFunction.ofRequestProcessor(request -> {
-            String requestId = UUID.randomUUID().toString();
-            long startTime = System.currentTimeMillis();
-
-            // Log des infos
-            log.info("""
-                    ========== [REQUEST LOG - ID: {}] ==========
-                    Method: {}
-                    URL: {}
-                    Headers: {}
-                    =============================================
-                    """,
-                    requestId,
-                    request.method(),
-                    request.url(),
-                    request.headers());
-
-            // Ajoute les attributs à la requête
-            ClientRequest mutatedRequest = ClientRequest.from(request)
-                    .attribute("request-id", requestId)
-                    .attribute("start-time", startTime)
-                    .build();
-
-            return Mono.just(mutatedRequest);
-        });
-    }
-
-    private ExchangeFilterFunction logResponse() {
-        return ExchangeFilterFunction.ofResponseProcessor(response -> {
-            // Copie le contenu de la réponse
-            return response.bodyToMono(String.class)
-                    .defaultIfEmpty("")
-                    .flatMap(body -> {
-                        return Mono.deferContextual(context -> {
-                            String requestId = context.getOrDefault("request-id", "unknown");
-                            long startTime = context.getOrDefault("start-time", System.currentTimeMillis() - 1000);
-                            long duration = System.currentTimeMillis() - startTime;
-
-                            log.info("""
-                                    ========== [RESPONSE LOG - ID: {}] ==========
-                                    Status: {}
-                                    Headers: {}
-                                    Body: {}
-                                    Duration: {} ms
-                                    ===============================================
-                                    """,
-                                    requestId,
-                                    response.statusCode(),
-                                    response.headers().asHttpHeaders(),
-                                    body,
-                                    duration);
-
-                            // Reconstituer le ClientResponse avec le body consommé
-                            return Mono.just(ClientResponse.from(response).body(body).build());
-                        });
-                    });
-        });
-    }
-
-    private static final Logger log = LoggerFactory.getLogger(WebClientConfig.class);
 }
+
+
