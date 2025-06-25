@@ -1,7 +1,7 @@
 package com.enspy.syndicmanager.client.services;
 
 
-import com.enspy.syndicmanager.client.dto.request.createOrganisationRequest;
+import com.enspy.syndicmanager.client.dto.request.CreateOrganisationDto;
 import com.enspy.syndicmanager.client.dto.response.OrganizationDto;
 import com.enspy.syndicmanager.dto.response.ResponseDto;
 import lombok.AllArgsConstructor;
@@ -18,7 +18,7 @@ public class Organisation {
 
     ApiService apiService;
 
-    public Mono<ResponseDto> createOrganisation(createOrganisationRequest request){
+    public Mono<ResponseDto> createOrganisation(CreateOrganisationDto request){
         ParameterizedTypeReference<Void> voidTypeRef =
                 new ParameterizedTypeReference<Void>() {};
         String endpoint  = "/organization-service/organizations";

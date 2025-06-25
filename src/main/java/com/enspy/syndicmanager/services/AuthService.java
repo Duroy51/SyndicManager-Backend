@@ -1,63 +1,36 @@
 package com.enspy.syndicmanager.services;
 
 
-import com.enspy.syndicmanager.client.dto.response.LoginResponse;
-import com.enspy.syndicmanager.dto.request.LoginDto;
 import com.enspy.syndicmanager.dto.request.RegisterDto;
-import com.enspy.syndicmanager.dto.response.ResponseDto;
+import com.enspy.syndicmanager.models.SyndUser;
+import com.enspy.syndicmanager.repositories.SyndUserRepository;
+import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
+import reactor.core.scheduler.Schedulers;
 
-import java.time.Duration;
+import java.util.UUID;
 
 @Service
+@AllArgsConstructor
 public class AuthService {
-    private final WebClient webClient;
-    private String authToken;
 
-    public AuthService(WebClient webClient) {
-        this.webClient = webClient;
-    }
-    public Mono<LoginResponse> login (LoginDto loginDto) {
-        return webClient.post()
-                .uri("/auth-service/auth/login")
-                .bodyValue(loginDto)
-                .retrieve()
-                .bodyToMono(LoginResponse.class)
-                .doOnNext(resp -> this.authToken = resp.getAccessToken().getToken());
-    }
+    SyndUserRepository syndUserRepository;
+    public Mono<SyndUser> registerSyndicUser(RegisterDto registerDto, UUID id) {
+        return Mono.fromCallable(() -> {
+                    SyndUser user = new SyndUser();
+                    user.setEmail(registerDto.getEmail());
+                    user.setFirstName(registerDto.getFirst_name());
+                    user.setUsername(registerDto.getUsername());
+                    user.setLastName(registerDto.getLast_name());
+                    user.setPassword(registerDto.getPassword());
+                    user.setPhoneNumber(registerDto.getPhone_number());
+                    user.setId(id);
 
-    public Mono<ResponseDto> register(RegisterDto registerDto) {
-        return webClient.post()
-                .uri("/auth-service/auth/register")
-                .bodyValue(registerDto)
-                .exchangeToMono(this::handleResponse)                   // accès à ClientResponse :contentReference[oaicite:3]{index=3}
-                .retryWhen(Retry.backoff(3, Duration.ofSeconds(1))                     // 3 essais avec backoff de 1 s :contentReference[oaicite:4]{index=4}
-                        .filter(throwable -> throwable instanceof WebClientResponseException)
-                )
-                .onErrorResume(ex -> {                                                 // après 3 échecs, on extrait le statut
-                    if (ex instanceof WebClientResponseException wcre) {
-                        ResponseDto errorDto = new ResponseDto();
-                        errorDto.setStatus(wcre.getStatusCode().value());
-                        errorDto.setText("Échec après 3 tentatives");
-                        return Mono.just(errorDto);
-                    }
-                    return Mono.error(ex);
-                });
-    }
-
-    private Mono<ResponseDto> handleResponse(ClientResponse response) {
-        if (response.statusCode().is2xxSuccessful()) {
-            return response.bodyToMono(ResponseDto.class);
-        } else {
-            // transforme la réponse HTTP en erreur pour déclencher retryWhen
-            return response.createException()
-                    .flatMap(Mono::error);                                  // lever exception sur statut non-2xx :contentReference[oaicite:5]{index=5}
-        }
+                    return syndUserRepository.save(user);
+                })
+                .subscribeOn(Schedulers.boundedElastic())
+                .doOnError(error -> System.err.println("Erreur lors de la sauvegarde en base: " + error.getMessage()));
     }
 
 }
