@@ -20,11 +20,11 @@ public class AuthService {
         return Mono.fromCallable(() -> {
                     SyndUser user = new SyndUser();
                     user.setEmail(registerDto.getEmail());
-                    user.setFirstName(registerDto.getFirst_name());
+                    user.setFirstName(registerDto.getFirstName());
                     user.setUsername(registerDto.getUsername());
-                    user.setLastName(registerDto.getLast_name());
+                    user.setLastName(registerDto.getLastName());
                     user.setPassword(registerDto.getPassword());
-                    user.setPhoneNumber(registerDto.getPhone_number());
+                    user.setPhoneNumber(registerDto.getPhoneNumber());
                     user.setId(id);
 
                     return syndUserRepository.save(user);
